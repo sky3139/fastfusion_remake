@@ -1,0 +1,422 @@
+#!/bin/bash
+# composite -geometry +14+12 @ ~/background.jpg #.bis.jpg to #.jpg
+
+IMAGES_DIR="../doc/images"
+QGLVIEWER_HOME_DIR=$(cat /tmp/QGLViewerRootDir)
+OUTPUT_DIR="../doc/examples"
+VERSION=`grep -a "^version=" $QGLVIEWER_HOME_DIR/makeDist | sed s/"version=\"\(.*\)\""/"\1"/`
+
+EXAMPLES_SKIPPED_DIRS=$(grep "^EXAMPLES_SKIPPED_DIRS=" $QGLVIEWER_HOME_DIR/makeDist | head -1 | cut -d'=' -f2 | sed s%"\""%%g | sed s%"examples/"%%g)
+BASIC_EXAMPLE_DIRS="simpleViewer manipulatedFrame select keyboardAndMouse"
+
+tmp="/tmp"
+test -d $tmp || tmp="/home/debunne/.tmp"
+
+indexUpToDate="Yes"
+
+
+function error
+{
+  echo
+  echo "Error : $1"
+  exit 1
+}
+
+function writeHeader() 
+{
+  cat > $OUTPUT <<EOF
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+  <title>libQGLViewer $name example</title>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <link href="../qglviewer.css" rel="stylesheet" type="text/css" />
+  <link rel="shortcut icon" href="../images/qglviewer.ico" type="image/x-icon" />
+  <link rel="icon" href="../images/qglviewer.icon.png" type="image/png" />
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-23223012-2']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+</head>
+<body>
+
+<div class="banner">
+ <a class="qindex" href="../index.html">Home</a>
+ <a class="qindex" href="../download.html">Download</a>
+ <a class="qindex highlight" href="index.html">Gallery</a>
+ <a class="qindex" href="../refManual/hierarchy.html">Documentation</a>
+ <a class="qindex" href="../developer.html">Developer</a>
+</div>
+
+EOF
+}
+
+function writeFooter() 
+{
+  cat >> $output <<EOF
+
+<p>
+  Back to the <a href="index.html">examples main page</a>.
+</p>
+
+</body>
+</html>
+EOF
+}
+
+
+
+# Check all basic directories are present
+for name in $BASIC_EXAMPLE_DIRS
+do
+  test -d $name || error "Basic example $name is not found"
+done
+
+test -d $OUTPUT_DIR || mkdir -p $OUTPUT_DIR
+
+#which "source-highlight" >& /dev/null || error "Unable to find source-highlight - Abort"
+    
+export LC_TIME="en"
+date=`date "+%A, %B %d, %Y"`
+unset LC_TIME
+
+# Create the examples HTML files with included code
+for name in `ls -1`
+do
+  test -d $name || continue
+
+  for skip in $EXAMPLES_SKIPPED_DIRS
+  do
+    if [ $name == $skip ]
+    then
+      continue 2
+    fi
+  done
+
+  isBasic=0
+  for basic in $BASIC_EXAMPLE_DIRS
+  do
+    if [ $name == $basic ]
+    then
+      isBasic=1
+      break
+    fi
+  done
+
+  if [ $isBasic -eq 0 ]
+  then
+      EXAMPLE_DIRS="$EXAMPLE_DIRS $name"
+  fi
+  
+  output="$OUTPUT_DIR/$name.html"
+  updateNeeded="No"
+
+  test -f $output || updateNeeded="Yes"
+
+  for file in `ls $name/*.h $name/*.cpp $name/*.pro`
+  do
+    if [ $file -nt $output -o $0 -nt $output ]
+    then
+      updateNeeded="Yes"
+      break
+    fi
+  done
+
+  if [ -f $IMAGES_DIR/$name.jpg ] && [ $IMAGES_DIR/$name.jpg -nt $output ]
+  then
+    updateNeeded="Yes"
+  fi
+
+  if [ $updateNeeded == "No" ]
+  then
+    continue
+  fi
+  
+  #echo "   Creating $name example page"
+  indexUpToDate="No"
+
+  test -f $IMAGES_DIR/$name.jpg || error "    No image found for $name - Aborting"
+  test -f $name/$name.pro || error "    No .pro found for $name"
+  grep "File examples.$name.release.$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.exe not found in .nsi"
+
+  if [ $isBasic -eq 0 ]
+  then
+    grep "CreateShortcut.*pedagogical.*$name.lnk.*$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.lnk not found in .nsi"
+  else
+    grep "CreateShortcut.*basic.*$name.lnk.*$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.lnk not found in .nsi"
+  fi
+
+  OUTPUT=$output
+  writeHeader
+
+  echo -e "<h1>The $name example</h1>\n" >> $output
+
+  echo "<center>" >> $output
+  echo "  <img src=\"../images/$name.jpg\" width=\"330\" height=\"228\" alt=\"$name\"/>" >> $output
+  echo -e "</center>\n" >> $output
+
+  awk 'BEGIN { p=0; }
+       /^#/    { if (p==0) print "<p>"; print substr($0, 2); p=1; next; }
+       /^ *$/  { if (p==1) print "</p>"; p=0; }
+       /^ *\w/ { print "\n"; exit; }' $name/$name.pro >> $output
+
+  fileList=""
+  test -f $name/$name.h   && fileList="$fileList $name/$name.h"
+  test -f $name/$name.cpp && fileList="$fileList $name/$name.cpp"
+
+  for file in `ls $name/*.h`
+    do
+    for f in $fileList
+      do
+      if [ $f == $file ]
+	  then
+          continue 2
+      fi
+    done
+    fileList="$fileList $file"
+  done
+  
+  for file in `ls $name/*.cpp`
+    do
+    for f in $fileList
+      do
+      if [ $f == $file ]
+	  then
+          continue 2
+      fi
+    done
+    fileList="$fileList $file"
+  done
+
+  for file in $fileList
+    do
+    echo "<h2>$(echo $file | sed s#$name/##)</h2>" >> $output
+    #source-highlight -s cpp -f html -i $file >> $output
+    echo "<pre>" >> $output
+    sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g' $file >> $output
+    echo "</pre>" >> $output
+    echo -e "\n" >> $output
+  done
+
+  writeFooter
+done
+
+
+# Create the contrib examples HTML files with simple description
+output="$OUTPUT_DIR/contribs.html"
+contribsDir="contribs"
+updateNeeded="No"
+
+test -f $output || updateNeeded="Yes"
+
+for name in `ls -1 $contribsDir`
+do
+  test -d $contribsDir/$name || continue
+
+  CONTRIB_DIRS="$CONTRIB_DIRS $name"
+  
+  if [ -d $contribsDir/$name/Viewer ]
+  then
+    list="$contribsDir/$name/Viewer/*.h $contribsDir/$name/Viewer/*.cpp $contribsDir/$name/Viewer/*.pro"
+  else
+    list="$contribsDir/$name/*.h $contribsDir/$name/*.cpp $contribsDir/$name/*.pro"
+  fi
+ 
+  for file in `ls $list`
+  do
+    if [ $file -nt $output -o $0 -nt $output ]
+    then
+      updateNeeded="Yes"
+      indexUpToDate="No"
+      break
+    fi
+  done
+done
+
+if [ $updateNeeded == "Yes" ]
+then
+  #echo "   Creating contribs page"
+  indexUpToDate="No"
+
+  OUTPUT=$output
+  writeHeader
+ 
+  cat > $output <<EOF
+<h1>The contribution examples</h1>
+
+The following examples do not directly illustrate a functionality of the library. Some are very
+simple while others are much more involved. Feel free to browse the files and to cut and paste. Only
+a short description is here given, the different source code are available in the
+<code>examples/contribs</code> directory.
+
+EOF
+
+  for name in `ls -1 $contribsDir`
+  do
+    test -d $contribsDir/$name || continue
+
+    test -f $IMAGES_DIR/$name.jpg || error "    No image found for $name"
+    test -f $contribsDir/$name/$name.pro || error "    No .pro found for $name"
+    if [ -d $contribsDir/$name/Viewer ]
+    then
+      grep "File examples.$contribsDir.$name.Viewer.release.$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.exe not found in .nsi"
+      grep "File examples.$contribsDir.$name.AI.release.${name}AI.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "${name}AI.exe not found in .nsi"
+      grep "CreateShortcut.*advanced.*$name.lnk.*$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.lnk not found in .nsi"
+      grep "CreateShortcut.*advanced.*$name.lnk.*$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.lnk not found in .nsi"
+    else
+      grep "File examples.$contribsDir.$name.release.$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.exe not found in .nsi"
+      grep "CreateShortcut.*advanced.*$name.lnk.*$name.exe" $QGLVIEWER_HOME_DIR/libQGLViewer.nsi > /dev/null || error "$name.lnk not found in .nsi"
+    fi
+
+    # echo "   - $name"
+    echo "<a name=\""$name"\"></a>" >> $output
+    echo "<h2 style=\"border-top:2px solid #CCC; margin:0; margin-top:20px; padding-left:20px;\">$name</h2>" >> $output
+
+    echo -e "<table>\n<tr>" >> $output
+    echo "  <td><img src=\"../images/$name.jpg\" width=\"330\" height=\"228\" alt=\"$name\"/></td>" >> $output
+
+    awk 'BEGIN { p=0; print "<td>\n<p>"; }
+       /^#/    { if (p==2) print "<p>"; print substr($0, 2); p=1; next; }
+       /^ *$/  { if (p==1) print "</p>"; p=2; next; }
+       { print "\n</td>\n</tr></table>\n"; exit; }' $contribsDir/$name/$name.pro >> $output
+  done
+
+  writeFooter
+fi
+
+
+
+function makeExampleCell()
+{
+  if [[ $col == 0 ]]
+  then
+    echo "  <tr>" >> $output
+  fi
+  
+  test -f $dir$name/$name.pro || error "Unable to find $name.pro - Aborting"
+  test -f $IMAGES_DIR/$name.jpg || error "Unable to find image for $name - Aborting"
+
+  text=`awk 'BEGIN { p = 0; } /^#/ { print substr($0, 2); p=1; next; } { if (p==1) exit; }' $dir$name/$name.pro`
+
+  if [ "$dir" == "" ]
+  then
+    ref="$name.html"
+  else
+    ref="contribs.html#$name"
+  fi
+    
+  echo "    <td style='border:2px solid #aaaacc' align=\"center\">" >> $output
+  echo "      <a href=\"$ref\"><img src=\"../images/$name.jpg\" width=\"330\" height=\"228\" alt=\"$name\"/><br/>" >> $output
+  echo "      <b>$name</b></a><br/>$text" >> $output
+  echo "    </td>" >> $output
+
+  col=`expr $col \+ 1`
+  if [[ $col == $nbCol ]]
+  then
+    echo "  </tr>" >> $output
+    col=0
+  fi
+}
+
+function fillTable()
+{
+  if [[ $col != 0 ]]
+  then
+    while [[ $col != $nbCol ]]
+    do
+      echo "    <td>&nbsp;</td>" >> $output
+      col=`expr $col \+ 1`
+    done
+
+    echo "  </tr>" >> $output
+  fi
+  
+  echo -e "</table>\n\n" >> $output
+}
+
+
+# Main example index page
+output="$OUTPUT_DIR/index.html"
+if [ $indexUpToDate == "No" ]
+then
+  #echo "   Creating index page $output"
+
+  OUTPUT=$output
+  writeHeader
+
+  cat >> $output <<EOF
+
+<h1>libQGLViewer examples</h1>
+
+<div class="summary">
+<b><a href="#introduction">&raquo;&raquo;</a></b> &nbsp; Introduction<br/>
+<b><a href="#basic">&raquo;&raquo;</a></b> &nbsp; Basic examples<br/>
+<b><a href="#pedagogical">&raquo;&raquo;</a></b> &nbsp; Pedagogical examples<br/>
+<b><a href="#complex">&raquo;&raquo;</a></b> &nbsp; More complex examples<br/>
+</div>
+
+
+<a name="introduction"></a>
+<h2>Introduction</h2>
+
+Many pedagogical examples illustrate some of the functionalities of the viewer and are provided for
+understanding and cut and paste. They were not designed to be impressive, but to demonstrate what can
+be achieved with few lines of code.
+
+<p>
+One should first try the <a href="#basic">basic examples</a> listed below and read the <a href="../introduction.html">introduction page</a> to understand
+the philosophy of the library. See also the <a href="../compilation.html">compilation with libQGLViewer</a> page to learn how to create your first program.
+</p>
+
+<a name="basic"></a>
+<h2>Basic examples</h2>
+
+<table style="margin:auto;" cellpadding="2" cellspacing="12">
+EOF
+
+# Basic examples
+nbCol=2
+col=0
+for name in $BASIC_EXAMPLE_DIRS
+do
+  makeExampleCell
+done
+fillTable
+
+# Pedagogical examples
+echo "<a name=\"pedagogical\"></a>" >> $output
+echo "<h2>Pedagogical examples</h2>" >> $output
+
+nbCol=3
+col=0
+echo "<table style=\"margin:auto;\" cellpadding=\"2\" cellspacing=\"12\">" >> $output
+for name in $EXAMPLE_DIRS
+do
+  makeExampleCell
+done
+fillTable
+
+# Complex examples
+echo "<a name=\"complex\"></a>" >> $output
+echo "<h2>More complex examples</h2>" >> $output
+
+col=0
+dir="$contribsDir/"
+echo "<table style=\"margin:auto;\" cellpadding=\"2\" cellspacing=\"12\">" >> $output
+for name in $CONTRIB_DIRS
+do
+  makeExampleCell
+done
+fillTable
+
+  writeFooter
+fi

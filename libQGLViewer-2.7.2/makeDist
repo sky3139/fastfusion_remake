@@ -1,0 +1,604 @@
+#!/bin/bash
+
+libName="libQGLViewer"
+version="2.7.2"
+
+WebURL="http://www.libqglviewer.com"
+
+version_major=`echo $version | cut -d"." -f1`
+version_minor=`echo $version | cut -d"." -f2`
+version_release=`echo $version | cut -d"." -f3`
+
+libNameVersion="$libName-$version"
+tmpDir="/tmp/$libNameVersion"
+QGLViewerRootDir=$(pwd)
+echo $QGLViewerRootDir > /tmp/QGLViewerRootDir
+allTarGZ="$libNameVersion-all.tar.gz"
+
+cd $QGLViewerRootDir
+
+DOS2UNIX="" #"dos2unix -o -q"
+UNIX2DOS="" #"unix2dos -o -q"
+DOXYGEN=$(which doxygen)
+
+function error
+{
+  echo $1
+  exit 1
+}
+
+
+
+if [[ $@ != 0 ]] && [[ $1 = "web" ]]
+then
+echo "--- Publishing libQGLViewer version $version ---"
+
+WebDir="/www"
+SrcDir="src"
+#echo "TEST mode $WebDir" && mkdir -p $WebDir/$SrcDir && touch $WebDir/$SrcDir/oldContent
+
+cd ~/.tmp
+test -f $allTarGZ  || error "No archive file in .tmp dir."
+
+rm $WebDir/*.html $WebDir/*.css
+rm -rf $WebDir/examples $WebDir/images $WebDir/refManual 
+
+tar xzf $allTarGZ
+
+mv $libNameVersion.tar.gz $libNameVersion.zip libqglviewer*$version*.deb $libName*$version*.rpm $WebDir/$SrcDir
+
+cd $WebDir
+
+cd $SrcDir
+test -f md5sum.txt && rm md5sum.txt
+md5sum `find . -type f | sort` > md5sum.txt
+ls -1 | grep -v "^lib" | grep -v "index.php" | grep -v "md5sum.txt"  | grep -v "licenseQGLViewer.pdf" && echo "Extra files in src"
+cd - > /dev/null
+
+echo "Checking links..."
+checkLinks.pl -r
+exit
+fi # Fin option web
+
+
+
+
+
+
+function checkGrep()
+{
+  grep "$TARGET" $FILE > /dev/null
+  if [[ "$?" -ne "0" ]]
+  then
+	echo
+    echo "ERROR : $TARGET not found in $FILE"
+    exit 1
+  fi
+}
+
+function checkVersion()
+{
+  grep "^$START$VERSION" $FILE > /dev/null
+  if [[ "$?" -ne "0" ]]
+  then
+	echo
+    echo "Version found in $FILE is not $VERSION - Patching"
+    sed s~"^$START.*"~"$START$VERSION"~ $FILE > /tmp/makeDist
+    cp /tmp/makeDist $FILE
+  fi
+}
+
+function makeDist()
+{
+  for source in $SOURCES
+  do
+    if [[ $source =~ ^ui_.*\.h$ ]] ; then continue; fi
+    dir=$tmpDir/$TARGET/$(dirname $source)
+    test -d $dir || mkdir -p $dir
+    #echo "### cp $source $dir   depuis $(pwd)"
+    cp $source $dir
+  done
+}
+
+
+
+
+echo "--- Packaging libQGLViewer version $version ---"
+
+
+##################################################################
+############        Checking version coherence        ############
+##################################################################
+echo -n "Checking   : "
+
+echo -n "version"
+
+VERSION=$version_major
+START="%define version_major "
+FILE="QGLViewer/qglviewer.spec"
+checkVersion
+
+VERSION=$version_minor
+START="%define version_minor "
+FILE="QGLViewer/qglviewer.spec"
+checkVersion
+
+VERSION=$version_release
+START="%define version_revision "
+FILE="QGLViewer/qglviewer.spec"
+checkVersion
+
+VERSION=$version
+START="VERSION = "
+FILE="QGLViewer/QGLViewer.pro"
+checkVersion
+
+vrelease=$(echo "obase=16; ${version_release}" | bc  | awk '{printf "%02s\n",$0}')
+hexVersion="0x0${version_major}0${version_minor}${vrelease}"
+VERSION=$hexVersion
+START="#define QGLVIEWER_VERSION "
+FILE="QGLViewer/config.h"
+checkVersion
+
+VERSION="$version\""
+START="PROJECT_NUMBER         = \"Version "
+FILE="doc/Doxyfile"
+checkVersion
+
+VERSION="$version"
+START="\!define VERSION " # protect ! from back
+FILE="libQGLViewer.nsi"
+checkVersion
+
+VERSION="$version"
+START="VIProductVersion "
+FILE="libQGLViewer.nsi"
+checkVersion
+
+VERSION="$version"
+START="QHP_NAMESPACE          = com.libqglviewer."
+FILE="doc/Doxyfile"
+checkVersion
+
+##################################################################
+############          Checking file integrity         ############
+##################################################################
+echo -n " files"
+
+# Convert possible Windows encoding
+if [[ $DOS2UNIX ]]
+then
+	find . -type f -a \( -name '*.cpp' -o -name '*.h' -o -name '*.ui' -o -name '*.html' -o -name '*.txt' -o -name '*.pro' -o -name '*.pri' -o -name '*.ui' -o -name '*.ago' -o -name '*.css' -o -name '*.bwb' \) -exec $DOS2UNIX {} \; > /tmp/error 2>&1 
+	grep -v "/\.svn/" /tmp/error
+	if [[ "$?" -eq "0" ]]
+	then
+	  echo "Error while converting newlines, see /tmp/error"
+	  grep -v "/\.svn/" /tmp/error
+	  exit 1
+	fi
+fi
+
+TARGET="Gilles Debunne <contact@libQGLViewer.com> $version"
+FILE="QGLViewer/qglviewer.spec"
+checkGrep
+
+TARGET="<a href=\"changeLog.html\">.*$version"
+FILE="doc/index.html"
+checkGrep
+
+TARGET="$version</h2>"
+FILE="doc/changeLog.html"
+checkGrep
+
+
+for f in `ls QGLViewer/QGLViewer.pro examples/*/*.pro examples/contribs/*/*.pro examples/contribs/*/*/*.pro`
+do
+  case "$f" in
+    "QGLViewer/QGLViewer.pro"|"examples/debug/debug.pro"|"examples/contribs/contribs.pro"|"examples/contribs/agora/agora.pro"|"examples/contribs/blobWar/blobWar.pro")
+    continue
+    ;;
+  esac
+  
+  TARGET="^include.*examples\.pri"
+  FILE="$f"
+  checkGrep
+done
+
+
+TARGET="^URL.*$WebURL"
+FILE="QGLViewer/qglviewer.spec"
+checkGrep
+
+TARGET="^\!define URL $WebURL"
+FILE="libQGLViewer.nsi"
+checkGrep
+
+echo
+
+
+ 
+##################################################################
+############            Collecting  sources            ###########
+##################################################################
+echo -n "Collecting : "
+
+test -d $tmpDir && rm -rf $tmpDir
+test -d $tmpDir || mkdir -p $tmpDir
+
+# ----------------------------------------------
+
+
+SOURCES="CHANGELOG INSTALL README LICENCE GPL_EXCEPTION gpl-header libQGLViewer.pro"
+if [[ $DOS2UNIX ]]
+then
+	$DOS2UNIX $SOURCES &> /tmp/error
+	test -s /tmp/error && more /tmp/error && error "Error while converting newlines to Unix"
+fi
+TARGET=""
+makeDist
+
+# ----------------------------------------------
+
+echo -n "sources"
+cd QGLViewer
+
+rm -f ui_*.h
+SOURCES="*.h *.cpp QGLViewer*.pro *.ui qglviewer_*.ts qglviewer-icon.xpm qglviewer.icns VRender/*.h VRender/*.cpp"
+TARGET="QGLViewer"
+makeDist
+
+cd - > /dev/null
+
+# ----------------------------------------------
+
+echo -n " examples"
+
+function makeDistExample()
+{
+  #echo "makeDistExample sur $DIR"
+  name=$(basename $DIR)
+  test -f $DIR/$name.pro || error "No example $name.pro file - Aborting"
+
+  TARGET="$name"
+  FILE="$(dirname $DIR)/$(basename $(dirname $DIR)).pro"
+  checkGrep
+
+  dotPro="$DIR/$name.pro"
+  grep 'SUBDIRS.*\\.*' $dotPro && echo "Unhandled backslash in SUBDIRS"
+  subDirs=$(grep "SUBDIRS" $dotPro | sed s%"SUBDIRS *= *"%%)
+  if [[ ! -z $subDirs ]]
+  then
+    for subDir in $subDirs
+    do
+      oldDir=$DIR
+      oldName=$name
+      DIR="$DIR/$subDir"
+      makeDistExample
+      DIR=$oldDir
+      name=$oldName
+    done
+    SOURCES="$DIR/$name.pro"
+    TARGET=""
+    makeDist
+  else 
+    TARGET="^include( \.\./.*examples.pri )"
+    FILE="$dotPro"
+    checkGrep
+
+    SOURCES="$name.pro *.cpp"
+    distFiles=$(grep "DISTFILES" $dotPro | sed s%"DISTFILES.*= *"%%)
+    SOURCES="$SOURCES $distFiles"
+    TARGET="$DIR"
+    cd $DIR
+    ls *.h &> /dev/null && SOURCES="$SOURCES *.h"
+    ls *.ui &> /dev/null && SOURCES="$SOURCES *.ui"
+    ls *.vcproj &> /dev/null && SOURCES="$SOURCES *.vcproj"
+    #echo "Example sources=$SOURCES"
+    makeDist
+    cd - > /dev/null
+  fi
+}
+
+
+cd examples
+
+SOURCES="examples.pro qglviewer.rc qglviewer.ico examples.pri contribs/contribs.pro"
+TARGET="examples"
+makeDist
+
+cd - > /dev/null
+
+EXAMPLES_SKIPPED_DIRS="examples/contribs examples/rangeAxisConstraint"
+for dir in $(ls -d examples/* examples/contribs/*)
+do
+  test -d $dir || continue
+
+  for r in $EXAMPLES_SKIPPED_DIRS
+  do
+    if [ $dir == $r ]
+    then
+      continue 2
+    fi
+  done
+  DIR="$dir"
+  makeDistExample
+done
+
+# ----------------------------------------------
+
+echo -n " doc"
+cd doc
+
+SOURCES="*.html *.css Doxyfile tabs.awk images/*jpg images/*png images/*gif images/qglviewer.ico" #cwExtractor
+TARGET="doc"
+makeDist
+
+cd - > /dev/null
+
+# ----------------------------------------------
+
+cd designerPlugin
+
+SOURCES="*.h *.cpp *.pro *.json"
+TARGET="designerPlugin"
+makeDist
+
+cd - > /dev/null
+
+echo
+
+
+
+##################################################################
+############            Filtering  sources            ############
+##################################################################
+echo -n "Filtering  : "
+
+cd $tmpDir
+
+########### Filter root files
+export LC_TIME="en"
+date=`date "+%B %-d, %Y"`
+for f in "gpl-header" "CHANGELOG" "INSTALL" "LICENCE" "README" "GPL_EXCEPTION" "libQGLViewer.pro"
+do
+  sed s:"#VERSION#":"$version":g $f | sed s%"#WEBURL#"%"$WebURL"%g | sed s:"#DATE#":"$date":g > $f.filtered
+  mv $f.filtered $f
+done
+
+mv "libQGLViewer.pro" "$libNameVersion.pro"
+
+
+########### Filter translations
+echo -n "sources"
+cd QGLViewer
+
+lupdate QGLViewer.pro 2> /dev/null > /dev/null
+lrelease QGLViewer.pro 2> /dev/null > /tmp/lrelease
+if [ `grep "0 unfinished" /tmp/lrelease | wc -l` != 1 ]
+then
+  echo
+  echo "Untranslated QString exist - Aborting"
+  exit
+fi
+
+if [ `grep "untranslated" /tmp/lrelease | wc -l` -gt 0 ]
+then
+  echo
+  echo "Untranslated QString exist - Aborting"
+  exit
+fi
+
+if [ `grep "type=\"obsolete\"" qglviewer_fr.ts | wc -l` -gt 0 ]
+then
+  echo
+  echo "Obsolete translations in qglviewer_fr.ts - Aborting"
+  exit
+fi
+
+cd - > /dev/null
+
+########### Create examples' web pages
+echo -n " examples"
+cd examples
+$QGLViewerRootDir/examples/makeDist || error "Error in examples' makeDist"
+cd - > /dev/null
+
+
+########### Add GPL warnings
+echo -n " copyright"
+for f in `find . -name '*.h' -o -name '*.cpp'`
+do
+  cat gpl-header $f > $f.bak
+  mv $f.bak $f
+done
+
+rm gpl-header
+
+vRenderCopyright="$QGLViewerRootDir/QGLViewer/VRender/copyright"
+test -f $vRenderCopyright || error "No copyright in VRender"
+
+if [[ $DOS2UNIX ]]
+then
+	$DOS2UNIX $vRenderCopyright
+fi
+
+for f in `find QGLViewer/VRender -name '*.h' -o -name '*.cpp'`
+do
+  cat $vRenderCopyright $f > $f.bak
+  mv $f.bak $f
+done
+
+
+########### Filter doc
+echo -n " doc"
+cd doc
+
+### Date and version ###
+for f in `ls *.html`
+do
+  date=`stat -f "%Sm" -t "%A, %B %d, %Y"`
+  #date=`date -r $f "+%A, %B %-d, %Y"`
+  sed s:"#VERSION#":"$version":g $f | sed s:"#VERSION_MAJOR#":"$version_major":g | sed s%"#WEBURL#"%"$WebURL"%g > /tmp/filtered
+  sed s:"#DATE#":"$date":g /tmp/filtered > $f
+done
+
+################################ Doxygen ###
+if [[ -f $DOXYGEN ]]
+then
+    $DOXYGEN Doxyfile
+else
+	echo
+	echo "Doxygen not found ($DOXYGEN)"
+    exit 1
+fi
+
+#cd latex ; make clear ; make pdf > /dev/null ; cp refman.pdf $WebDir/qglviewer.pdf
+rm doxygen.css Doxyfile
+
+cd refManual
+#doxytag -s search.idx >& /dev/null
+test -f installdox && rm installdox
+
+## Changing header menu in doxygen pages ##
+# Removing unused pages
+if [[ -f patchingDoxygenIsPainful ]]
+then
+    rm -f files.html globals.html globals_*.html *_8*.html namespace*.html dir_*.html dirs.html functions_rela.html functions_vars.html functions_0x*.html classes.html
+
+    # Patching functions pages
+    for f in $(ls functions_*.html)
+    do
+      newName=$(echo $f | sed s%"_func"%%)
+      grep -v "^Here is a list" $f | sed s%"functions_func"%"functions"%g | sed s%"| <a[^>]*>Variables</a>"%""%g | sed s%"| <a[^>]*>Related&nbsp;Functions</a>"%""%g | sed s%"<a[^>]*>All</a> |"%""%g > $newName-bis
+      rm -r $f
+      mv $newName-bis $newName
+    done
+
+	# Changing header menus
+	for f in $(ls *.html)
+	do
+		No time to keep up with doxygen output changes
+	    awk -f ../tabs.awk $f > /tmp/tabs
+	    mv /tmp/tabs $f
+	done
+
+	# Removing useless empty lines
+	for f in `ls *.html`
+	do
+	  awk '/<tr><td colspan="2"><p><a class="anchor"/ { skip=1; next} { if (skip==1) { skip=0; next } print} GILLES' $f > $f.tmp
+	  mv $f.tmp $f
+	done
+fi
+
+# Changing hierarchy page
+sed s%"This inheritance.*alphabetically:"%% hierarchy.html > /tmp/hierarchy.html
+awk '/<h1>Class Hierarchy<\/h1>/ { print "<p>You can add the libQGLViewer <code>.qch<\/code> file in Qt assistant to make it able to browse this documentation.<\/p>"} {print}' /tmp/hierarchy.html > hierarchy.html
+
+# Changing QGLViewer:: enums
+for f in $(ls class*.html)
+do
+  sed s%">QGLViewer::\([A-Z_]*\)</a>"%">\1</a>"%g $f > /tmp/qgl
+  mv /tmp/qgl $f
+done
+
+# Changing link to main page
+for f in $(ls *.html)
+do
+    sed s%"<a href=\"index.html\"><span>Main"%"<a href=\"../index.html\"><span>Main"%g $f > /tmp/qgl
+    mv /tmp/qgl $f
+done
+rm ../tabs.awk
+
+# Removing auto-links
+for f in `ls class*.html | grep -v -- "-members.html"`
+do
+  sed s%"<a[^<]* href=\"$f\"[^<]*>\([^<]*\)</a>"%"\1"%g $f > $f.tmp
+  mv $f.tmp $f
+done
+
+# Adding icon and libQGLViewer version
+for f in $(ls *.html)
+do
+  awk '/link.*doxygen.css/ {print "<link rel=\"shortcut icon\" href=\"../images/qglviewer.ico\" type=\"image/x-icon\" />"; print "<link rel=\"icon\" href=\"../images/qglviewer.icon.png\" type=\"image/png\" />";} {print $0;}' $f > $f.tmp
+  sed s/"Generated by&nbsp;"/"libQGLViewer $version documentation generated by"/g $f.tmp > $f
+  sed s/"<img[^>]*src=\"doxygen.png\"[^>]*\/>"/"doxygen"/ $f > $f.tmp
+  mv $f.tmp $f
+done
+
+# Creating assistant qch file
+awk '/<section title="Files"/ { skip=1 } /<\/toc>/ { print"      </section>"; skip=0 } { if (skip==0) print }' index.qhp > index.filtered.qhp
+awk '/<section title="libQGLViewer Version $version" ref="/ { print"      <section title=\"libQGLViewer Version $version\">"; next; } {print;}' index.filtered.qhp > index.qhp
+qhelpgenerator index.qhp -o ../libQGLViewer-$version.qch > /dev/null
+#rm index.qhp index.filtered.qhp
+
+cd - > /dev/null
+
+# cwExtrator
+#./cwExtractor
+#cp qglviewer.cw ../QGLViewer
+#mv qglviewer.cw ../examples/interface
+#rm cwExtractor
+
+echo
+echo ">> All files set in $tmpDir"
+cd $tmpDir
+
+
+
+
+
+
+############################################################
+############            Packages                ############
+############################################################
+echo -n "Packaging   : "
+
+export LC_ALL="C"
+export LANGUAGE="C"
+
+# Tar 
+echo -n " tar"
+cd ..
+tar -czf $libNameVersion.tar.gz $libNameVersion
+cd - > /dev/null
+
+
+
+echo -n " zip"
+
+mv CHANGELOG changeLog.txt
+mv INSTALL install.txt
+mv LICENCE licence.txt
+mv README readMe.txt
+mv GPL_EXCEPTION GPL_exception.txt
+
+function addNamespace()
+{
+  TARGET="class QGLVIEWER_EXPORT $1 : public $2"
+  FILE="QGLViewer/$3.h"
+  checkGrep
+
+  sed s%"$TARGET"%"class QGLVIEWER_EXPORT $1 : public qglviewer::$2"% $FILE > /tmp/addNamespace
+  mv /tmp/addNamespace QGLViewer/$3.h
+}
+#addNamespace SpinningFrame Frame spinningFrame
+addNamespace ManipulatedFrame Frame manipulatedFrame
+addNamespace ManipulatedCameraFrame ManipulatedFrame manipulatedCameraFrame
+
+# vcproj are now added to all packages, just in case
+#for vcproj in $(find $QGLViewerRootDir/ -name '*.vcproj' -type f)
+#do
+#  target=$(echo $vcproj | sed s%"$QGLViewerRootDir/"%""%)
+#  cp $vcproj $target
+#done
+
+if [[ $UNIX2DOS ]]
+then
+	find . -type f -a \( -name '*.cpp' -o -name '*.h' -o -name '*.ui' -o -name '*.html' -o -name '*.txt' -o -name '*.pro' -o -name '*.pri' -o -name '*.ui' -o -name '*.ago' -o -name '*.css' -o -name '*.bwb' -o -name '*.vcproj' \) -exec $UNIX2DOS {} \; &> /tmp/error
+	test -s /tmp/error && more /tmp/error && error "Error while converting newlines to DOS"
+fi
+
+cd ..
+zip -qr $libNameVersion.zip $libNameVersion
+
+echo
