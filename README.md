@@ -1,5 +1,8 @@
-fastfusion
+fastfusion_remake
 ==========
+
+
+修复了原仓库在ubuntu20.04不能编译的错误。
 
 Volumetric 3D Mapping in Real-Time on a CPU 
 
