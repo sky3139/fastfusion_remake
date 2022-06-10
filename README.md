@@ -3,6 +3,8 @@ fastfusion_remake
 
 
 修复了原仓库在ubuntu20.04不能编译的错误。
+1.如果显示黑屏，请查看案件的对应代码，滚轮调整显示位姿。
+2.read.hpp的作用为读取图片和位姿，可自行替换。
 
 Volumetric 3D Mapping in Real-Time on a CPU 
 
